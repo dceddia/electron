@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dave Ceddia <dave@daveceddia.com>
+Date: Wed, 12 Jan 2022 01:08:59 -0500
+Subject: Allow drag events to access files
+
+Fixes a regression. When files are dragged into Chromium, it does not
+allow JS to access the File objects until they're dropped. Earlier
+versions of Electron (and Chromium/WebKit) supported this, but it broke
+when WebKit was updated to comply with the specification.
+
+This patch allows JS to access File objects before they're dropped. It's
+limited to only local URLs (ones starting with file://) and to
+localhost.
+
+diff --git a/third_party/blink/renderer/core/page/drag_controller.cc b/third_party/blink/renderer/core/page/drag_controller.cc
+index c41c477811c27c0de701d7de42296173e04d3de6..8eec845c90596b2f6bc3b765087bee9ceefe5488 100644
+--- a/third_party/blink/renderer/core/page/drag_controller.cc
++++ b/third_party/blink/renderer/core/page/drag_controller.cc
+@@ -224,7 +224,12 @@ void DragController::DragExited(DragData* drag_data, LocalFrame& local_root) {
+ 
+   LocalFrameView* frame_view(local_root.View());
+   if (frame_view) {
+-    DataTransferAccessPolicy policy = DataTransferAccessPolicy::kTypesReadable;
++    DataTransferAccessPolicy policy =
++        (!document_under_mouse_ ||
++         document_under_mouse_->GetExecutionContext()->GetSecurityOrigin()->IsLocal() ||
++         document_under_mouse_->GetExecutionContext()->GetSecurityOrigin()->IsLocalhost())
++            ? DataTransferAccessPolicy::kReadable
++            : DataTransferAccessPolicy::kTypesReadable;
+     DataTransfer* data_transfer = CreateDraggingDataTransfer(policy, drag_data);
+     data_transfer->SetSourceOperation(drag_data->DraggingSourceOperationMask());
+     local_root.GetEventHandler().CancelDragAndDrop(CreateMouseEvent(drag_data),
+@@ -792,7 +797,11 @@ bool DragController::TryDHTMLDrag(DragData* drag_data,
+   if (!local_root.View())
+     return false;
+ 
+-  DataTransferAccessPolicy policy = DataTransferAccessPolicy::kTypesReadable;
++  DataTransferAccessPolicy policy =
++      (document_under_mouse_->GetExecutionContext()->GetSecurityOrigin()->IsLocal() ||
++       document_under_mouse_->GetExecutionContext()->GetSecurityOrigin()->IsLocalhost())
++          ? DataTransferAccessPolicy::kReadable
++          : DataTransferAccessPolicy::kTypesReadable;
+   DataTransfer* data_transfer = CreateDraggingDataTransfer(policy, drag_data);
+   DragOperationsMask src_op_mask = drag_data->DraggingSourceOperationMask();
+   data_transfer->SetSourceOperation(src_op_mask);
